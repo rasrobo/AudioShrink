@@ -66,22 +66,29 @@ The Python script can also be used independently of n8n:
 
 ```bash
 source ~/AudioShrink_venv/bin/activate
-python compress_audio.py input_file.m4a output_file.mp3 [target_size_mb]
+python compress_audio.py input_file.m4a [output_file.mp3] [target_size_mb]
 ```
 
 ### Arguments
 
 - `input_file.m4a`: Path to the input audio file
-- `output_file.mp3`: Path where the compressed file will be saved
+- `output_file.mp3`: (Optional) Path where the compressed file will be saved. If not specified, uses the same name and location as the input file but with .mp3 extension
 - `target_size_mb`: (Optional) Target file size in MB (default: 199)
 
 ## Example
 
 ```bash
+# Specify output filename and target size
 python compress_audio.py large_podcast.m4a compressed_podcast.mp3 180
+
+# Use default output name (large_podcast.mp3) and default target size (199MB)
+python compress_audio.py large_podcast.m4a
+
+# Use default output name but specify target size
+python compress_audio.py large_podcast.m4a 180
 ```
 
-This will compress `large_podcast.m4a` to `compressed_podcast.mp3` with a target size of 180MB.
+These examples show how to compress `large_podcast.m4a` with different options for output naming and target sizes.
 
 ## How It Works
 
@@ -97,3 +104,9 @@ MIT
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Donations
+
+If you find this software useful and would like to support its development, you can buy me a coffee! Your support is greatly appreciated.
+
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/default-orange.png)](https://buymeacoffee.com/robodigitalis)
