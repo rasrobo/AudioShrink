@@ -101,7 +101,7 @@ def main():
     # Set up command line argument parsing
     parser = argparse.ArgumentParser(description='Compress audio files to a target size')
     parser.add_argument('input_file', help='Path to the input audio file')
-    parser.add_argument('output_file', help='Path to save the compressed output file')
+    parser.add_argument('output_file', nargs='?', help='Path to save the compressed output file (default: same as input with .mp3 extension)')
     parser.add_argument('target_size', type=float, nargs='?', default=199, 
                         help='Target size in MB (default: 199)')
     
@@ -111,6 +111,24 @@ def main():
     if not os.path.isfile(args.input_file):
         print(f"Error: Input file '{args.input_file}' not found.")
         return 1
+        
+    # Set default output file if not specified
+    if not args.output_file:
+        # Extract the directory and filename from the input path
+        input_dir = os.path.dirname(args.input_file)
+        input_filename = os.path.basename(args.input_file)
+        
+        # Remove the extension and add .mp3
+        base_name = os.path.splitext(input_filename)[0]
+        output_filename = f"{base_name}.mp3"
+        
+        # Combine directory with new filename
+        if input_dir:
+            args.output_file = os.path.join(input_dir, output_filename)
+        else:
+            args.output_file = output_filename
+            
+        print(f"No output file specified. Using: {args.output_file}")
     
     try:
         # Get input file size
