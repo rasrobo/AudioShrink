@@ -1,0 +1,251 @@
+{
+  "name": "AudioShrink: Dynamic Audio Compression",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "={{ $json.inputPath }}"
+      },
+      "name": "Read Input File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// This function calculates the required bitrate to achieve target file size\nfunction calculateBitrate(inputFileSizeMB, audioDurationSeconds, targetSizeMB = 199) {\n  // Convert MB to bits\n  const inputSizeBits = inputFileSizeMB * 8 * 1024 * 1024;\n  const targetSizeBits = targetSizeMB * 8 * 1024 * 1024;\n  \n  // Calculate original bitrate\n  const originalBitrate = inputSizeBits / audioDurationSeconds;\n  \n  // Calculate target bitrate\n  let targetBitrate = targetSizeBits / audioDurationSeconds;\n  \n  // Round down to standard bitrates (kbps): 320, 256, 192, 160, 128, 112, 96, 80, 64, 48, 32\n  const standardBitrates = [320, 256, 192, 160, 128, 112, 96, 80, 64, 48, 32];\n  \n  // Convert to kbps for comparison\n  targetBitrate = targetBitrate / 1000;\n  \n  // Find the highest standard bitrate that's below our target\n  for (const bitrate of standardBitrates) {\n    if (bitrate <= targetBitrate) {\n      return bitrate;\n    }\n  }\n  \n  // If no standard bitrate is low enough, return the lowest\n  return 32;\n}\n\n// Get input data\nconst inputData = $input.item.json;\nconst inputFileSizeMB = inputData.fileSizeMB || 205;\nconst audioDuration = inputData.audioDurationSeconds;\nconst targetSizeMB = inputData.targetSizeMB || 199;\nconst inputPath = inputData.inputPath;\nconst outputPath = inputData.outputPath || inputPath.replace(/\\.[^\\.]+$/, '.mp3');\n\n// If we don't have the duration yet, we'll get it in the next node\nif (!audioDuration) {\n  return {\n    inputPath,\n    outputPath,\n    fileSizeMB: inputFileSizeMB,\n    targetSizeMB\n  };\n}\n\n// Calculate appropriate bitrate\nconst bitrate = calculateBitrate(inputFileSizeMB, audioDuration, targetSizeMB);\n\nreturn {\n  inputPath,\n  outputPath,\n  fileSizeMB: inputFileSizeMB,\n  targetSizeMB,\n  audioDurationSeconds: audioDuration,\n  bitrate\n};"
+      },
+      "name": "Calculate Bitrate",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=ffprobe -i \"{{ $json.inputPath }}\" -show_entries format=duration -v quiet -of csv=\"p=0\""
+      },
+      "name": "Get Audio Duration",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse the duration output from ffprobe\nconst duration = parseFloat($input.item.json.stdout.trim());\n\n// Pass through all existing data and add the duration\nreturn {\n  ...$input.item.json,\n  audioDurationSeconds: duration\n};"
+      },
+      "name": "Parse Duration",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=python3 {{ $node[\"Set Python Script\"].json[\"scriptPath\"] }} \"{{ $json.inputPath }}\" \"{{ $json.outputPath }}\" {{ $json.bitrate }}"
+      },
+      "name": "Execute Python Script",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "filePath": "=/tmp/compress_audio.py",
+        "fileContent": "import sys\nimport os\nimport subprocess\nfrom pydub import AudioSegment\n\ndef get_file_size_mb(file_path):\n    \"\"\"Get file size in megabytes\"\"\"\n    return os.path.getsize(file_path) / (1024 * 1024)\n\ndef compress_audio(input_file, output_file, target_bitrate):\n    \"\"\"Compress audio file to target bitrate\"\"\"\n    # Convert to MP3 with the specified bitrate\n    audio = AudioSegment.from_file(input_file)\n    audio.export(output_file, format=\"mp3\", bitrate=f\"{target_bitrate}k\")\n    \n    # Print results\n    input_size = get_file_size_mb(input_file)\n    output_size = get_file_size_mb(output_file)\n    print(f\"Input file: {input_file} ({input_size:.2f} MB)\")\n    print(f\"Output file: {output_file} ({output_size:.2f} MB)\")\n    print(f\"Compression ratio: {input_size/output_size:.2f}x\")\n    print(f\"Used bitrate: {target_bitrate} kbps\")\n    \n    return output_size\n\ndef main():\n    if len(sys.argv) < 4:\n        print(\"Usage: python compress_audio.py input_file output_file bitrate\")\n        sys.exit(1)\n    \n    input_file = sys.argv[1]\n    output_file = sys.argv[2]\n    target_bitrate = int(sys.argv[3])\n    \n    # Ensure target bitrate is valid\n    valid_bitrates = [32, 48, 64, 80, 96, 112, 128, 160, 192, 256, 320]\n    if target_bitrate not in valid_bitrates:\n        closest_bitrate = min(valid_bitrates, key=lambda x: abs(x - target_bitrate))\n        print(f\"Warning: {target_bitrate} is not a standard bitrate. Using {closest_bitrate} instead.\")\n        target_bitrate = closest_bitrate\n    \n    # Perform compression\n    output_size = compress_audio(input_file, output_file, target_bitrate)\n    \n    # Return success or failure based on target size\n    if output_size < 200:\n        return 0\n    else:\n        print(\"Warning: Output file is still larger than 200 MB\")\n        return 1\n\nif __name__ == \"__main__\":\n    sys.exit(main())"
+      },
+      "name": "Set Python Script",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "path": "={{ $json.outputPath }}"
+      },
+      "name": "Read Output File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Get input and output file sizes\nconst outputData = $input.item.json;\nconst inputSize = outputData.fileSizeMB;\nlet outputSize = 0;\n\ntry {\n  // Try to get output file size\n  const fs = require('fs');\n  const stats = fs.statSync(outputData.outputPath);\n  outputSize = stats.size / (1024 * 1024);\n} catch (error) {\n  console.log('Error getting output file size:', error.message);\n}\n\n// Generate summary\nreturn {\n  ...outputData,\n  outputFileSizeMB: outputSize,\n  compressionRatio: inputSize / outputSize,\n  success: outputSize < 200,\n  summary: `Compressed ${outputData.inputPath} (${inputSize.toFixed(2)} MB) to ${outputData.outputPath} (${outputSize.toFixed(2)} MB) using ${outputData.bitrate} kbps. Compression ratio: ${(inputSize / outputSize).toFixed(2)}x`\n};"
+      },
+      "name": "Generate Summary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "manualTrigger"
+            }
+          ]
+        }
+      },
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initial workflow data\nreturn [{\n  json: {\n    inputPath: '/path/to/your/input.m4a',  // Update this with your actual file path\n    outputPath: '/path/to/your/output.mp3', // Update this with your desired output path\n    fileSizeMB: 205,                       // Update with actual file size if known\n    targetSizeMB: 199                      // Target size in MB (slightly below 200MB)\n  }\n}];"
+      },
+      "name": "Set Input Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        80,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "Read Input File": {
+      "main": [
+        [
+          {
+            "node": "Calculate Bitrate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Bitrate": {
+      "main": [
+        [
+          {
+            "node": "Get Audio Duration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Audio Duration": {
+      "main": [
+        [
+          {
+            "node": "Parse Duration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Duration": {
+      "main": [
+        [
+          {
+            "node": "Calculate Bitrate",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Set Python Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Python Script": {
+      "main": [
+        [
+          {
+            "node": "Read Output File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Python Script": {
+      "main": [
+        [
+          {
+            "node": "Execute Python Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Output File": {
+      "main": [
+        [
+          {
+            "node": "Generate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Input File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Input Parameters": {
+      "main": [
+        [
+          {
+            "node": "Read Input File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {},
+  "staticData": null,
+  "tags": [
+    {
+      "name": "audio"
+    },
+    {
+      "name": "compression"
+    }
+  ],
+  "updatedAt": "2023-07-14T12:00:00.000Z",
+  "versionId": "1"
+}
